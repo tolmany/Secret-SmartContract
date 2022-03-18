@@ -1,9 +1,13 @@
 use crate::msg::{HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg};
-use crate::state::{load, may_load, save, Reminder, State, CONFIG_KEY};
-use cosmwasm_std::{
-    to_binary, Api, Binary, Env, Extern, HandleResponse, InitResponse, Querier, StdError,
-    StdResult, Storage,
+use crate::state::{
+    load, may_load, read_viewing_key, save, write_viewing_key, Reminder, State, CONFIG_KEY,
 };
+use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
+use cosmwasm_std::{
+    to_binary, Api, Binary, Env, Extern, HandleResponse, HumanAddr, InitResponse, Querier,
+    QueryResult, StdError, StdResult, Storage,
+};
+use secret_toolkit::crypto::sha_256;
 use std::convert::TryFrom;
 
 // -------------------------------------------------------------------------- //

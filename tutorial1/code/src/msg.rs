@@ -1,3 +1,5 @@
+use crate::viewing_key::ViewingKey;
+use cosmwasm_std::HumanAddr;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

@@ -1,4 +1,6 @@
-use cosmwasm_std::{ReadonlyStorage, StdError, StdResult, Storage};
+use crate::viewing_key::ViewingKey;
+use cosmwasm_std::{CanonicalAddr, ReadonlyStorage, StdError, StdResult, Storage};
+use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use secret_toolkit::serialization::{Bincode2, Serde};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
