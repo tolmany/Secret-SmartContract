@@ -1,29 +1,14 @@
+use crate::msg::{HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg};
+use crate::state::{load, may_load, save, Reminder, State, CONFIG_KEY};
 use cosmwasm_std::{
     to_binary, Api, Binary, Env, Extern, HandleResponse, InitResponse, Querier, StdError,
     StdResult, Storage,
 };
 use std::convert::TryFrom;
-use crate::msg::{HandleMsg, InitMsg, QueryMsg, HandleAnswer, QueryAnswer};
-use crate::state::{load, may_load, save, State, Reminder, CONFIG_KEY};
 
-pub fn init<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    _env: Env,
-    msg: InitMsg,
-) -> StdResult<InitResponse> {
-    let max_size = match valid_max_size(msg.max_size) {
-        Some(v) => v,
-        None => return Err(StdError::generic_err("Invalid max_size. Must be in the range of 1..65535."))
-    };
-
-    let config = State {
-        max_size,
-        reminder_count: 0_u64,
-    };
-
-    save(&mut deps.storage, CONFIG_KEY, &config)?;
-    Ok(InitResponse::default())
-}
+// -------------------------------------------------------------------------- //
+//                                  initialize                                //
+// -------------------------------------------------------------------------- //
 
 // limit the max message size to values in 1..65535
 fn valid_max_size(val: i32) -> Option<u16> {
@@ -34,17 +19,40 @@ fn valid_max_size(val: i32) -> Option<u16> {
     }
 }
 
-pub fn handle<S: Storage, A: Api, Q: Querier>(
+// Init function
+pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env,
-    msg: HandleMsg,
-) -> StdResult<HandleResponse> {
-    match msg {
-        HandleMsg::Record { reminder } => try_record(deps, env, reminder),
-        HandleMsg::Read { } => try_read(deps, env),
-    }
+    _env: Env,
+    msg: InitMsg,
+) -> StdResult<InitResponse> {
+    // Check whether the reminder's maximum size exceeds its upper bound, i.e., a u16 type
+    let max_size = match valid_max_size(msg.max_size) {
+        Some(v) => v,
+        None => {
+            return Err(StdError::generic_err(
+                "Invalid max_size. Must be in the range of 1..65535.",
+            ))
+        }
+    };
+
+    // New instantiation of the state function
+    let config = State {
+        max_size,
+        reminder_count: 0_u64,
+    };
+
+    // Save the state function and send it to storage
+    save(&mut deps.storage, CONFIG_KEY, &config)?;
+
+    // Return a default 'InitResponse'
+    Ok(InitResponse::default())
 }
 
+//  -------------------------------------------------------------------------- //
+//                                     handle                                  //
+//  -------------------------------------------------------------------------- //
+
+// Record the message if you can and abort it if message exceeds allowed size
 fn try_record<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -66,11 +74,15 @@ fn try_record<S: Storage, A: Api, Q: Querier>(
         // create the reminder struct containing content string and timestamp
         let stored_reminder = Reminder {
             content: reminder.to_vec(),
-            timestamp: env.block.time
+            timestamp: env.block.time,
         };
 
         // save the reminder using a byte vector representation of the sender's address as the key
-        save(&mut deps.storage, &sender_address.as_slice().to_vec(), &stored_reminder)?;
+        save(
+            &mut deps.storage,
+            &sender_address.as_slice().to_vec(),
+            &stored_reminder,
+        )?;
 
         // increment the reminder_count
         config.reminder_count += 1;
@@ -84,12 +96,11 @@ fn try_record<S: Storage, A: Api, Q: Querier>(
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: Some(to_binary(&HandleAnswer::Record {
-            status,
-        })?),
+        data: Some(to_binary(&HandleAnswer::Record { status })?),
     })
 }
 
+// Try and read the message if there is one
 fn try_read<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -101,7 +112,9 @@ fn try_read<S: Storage, A: Api, Q: Querier>(
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
 
     // read the reminder from storage
-    let result: Option<Reminder> = may_load(&mut deps.storage, &sender_address.as_slice().to_vec()).ok().unwrap();
+    let result: Option<Reminder> = may_load(&mut deps.storage, &sender_address.as_slice().to_vec())
+        .ok()
+        .unwrap();
     match result {
         // set all response field values
         Some(stored_reminder) => {
@@ -110,7 +123,9 @@ fn try_read<S: Storage, A: Api, Q: Querier>(
             timestamp = Some(stored_reminder.timestamp);
         }
         // unless there's an error
-        None => { status = String::from("Reminder not found."); }
+        None => {
+            status = String::from("Reminder not found.");
+        }
     };
 
     // Return a HandleResponse with status message, reminder, and timestamp included in the data field
@@ -125,19 +140,35 @@ fn try_read<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+// 'handle' function
+pub fn handle<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    msg: HandleMsg,
+) -> StdResult<HandleResponse> {
+    match msg {
+        HandleMsg::Record { reminder } => try_record(deps, env, reminder),
+        HandleMsg::Read {} => try_read(deps, env),
+    }
+}
+
+// -------------------------------------------------------------------------- //
+//                                    query                                   //
+// -------------------------------------------------------------------------- //
+fn query_stats<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
+    // retrieve the config state from storage
+    let config: State = load(&deps.storage, CONFIG_KEY)?;
+    to_binary(&QueryAnswer::Stats {
+        reminder_count: config.reminder_count,
+    })
+}
+
+// A query function to return the binary encoded 'Stats' struct.
 pub fn query<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
 ) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Stats { } => query_stats(deps)
+        QueryMsg::Stats {} => query_stats(deps),
     }
 }
-
-fn query_stats<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
-    // retrieve the config state from storage
-    let config: State = load(&deps.storage, CONFIG_KEY)?;
-    to_binary(&QueryAnswer::Stats{ reminder_count: config.reminder_count })
-}
-
-
