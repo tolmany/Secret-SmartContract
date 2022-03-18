@@ -47,7 +47,7 @@ Clone the repo:
 git clone https://github.com/BalloonBox-Inc/SCRTSibyl-Contract.git  #OR https://github.com/scrtlabs/secret-template
 ```
 
-Either in the main folder or in the src folder run the following commands.
+Either in the main folder or in the src folder, run the following commands.
 For testing:
 
 ```sh
