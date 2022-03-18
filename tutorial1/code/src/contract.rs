@@ -36,9 +36,11 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     };
 
     // New instantiation of the state function
+    // store the 'seed' when the contract is initialized
     let config = State {
         max_size,
         reminder_count: 0_u64,
+        prng_seed: sha_256(base64::encode(msg.prng_seed).as_bytes()).to_vec(), // encode the 'seed' as a hashed Base64
     };
 
     // Save the state function and send it to storage
@@ -140,6 +142,27 @@ fn try_read<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+pub fn try_generate_viewing_key<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    entropy: String,
+) -> StdResult<HandleResponse> {
+    let config: State = load(&mut deps.storage, CONFIG_KEY)?;
+    let prng_seed = config.prng_seed;
+
+    let key = ViewingKey::new(&env, &prng_seed, (&entropy).as_ref());
+
+    let message_sender = deps.api.canonical_address(&env.message.sender)?;
+
+    write_viewing_key(&mut deps.storage, &message_sender, &key);
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::GenerateViewingKey { key })?),
+    })
+}
+
 // 'handle' function
 pub fn handle<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -149,12 +172,26 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     match msg {
         HandleMsg::Record { reminder } => try_record(deps, env, reminder),
         HandleMsg::Read {} => try_read(deps, env),
+        HandleMsg::GenerateViewingKey { entropy, .. } => {
+            try_generate_viewing_key(deps, env, entropy)
+        }
     }
 }
 
 // -------------------------------------------------------------------------- //
 //                                    query                                   //
 // -------------------------------------------------------------------------- //
+// A query function to return the binary encoded 'Stats' struct.
+pub fn query<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    msg: QueryMsg,
+) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::Stats {} => query_stats(deps),
+        _ => authenticated_queries(deps, msg), // deal with all authenticated queries
+    }
+}
+
 fn query_stats<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
     // retrieve the config state from storage
     let config: State = load(&deps.storage, CONFIG_KEY)?;
@@ -163,12 +200,66 @@ fn query_stats<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdRes
     })
 }
 
-// A query function to return the binary encoded 'Stats' struct.
-pub fn query<S: Storage, A: Api, Q: Querier>(
+// Check whether the correct viewing key has been sent for a given :
+// --> if the key matches, then we can handle the 'read' query
+// --> if the viewing key does not match or was not set, then we return an unauthorized error
+fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
-) -> StdResult<Binary> {
-    match msg {
-        QueryMsg::Stats {} => query_stats(deps),
+) -> QueryResult {
+    let (addresses, key) = msg.get_validation_params();
+
+    for address in addresses {
+        let canonical_addr = deps.api.canonical_address(address)?;
+
+        let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
+
+        if expected_key.is_none() {
+            // Checking the key will take significant time. We don't want to exit immediately if it isn't set
+            // in a way which will allow to time the command and determine if a viewing key doesn't exist
+            key.check_viewing_key(&[0u8; VIEWING_KEY_SIZE]);
+        } else if key.check_viewing_key(expected_key.unwrap().as_slice()) {
+            return match msg {
+                QueryMsg::Read { address, .. } => query_read(&deps, &address),
+                _ => panic!("This query type does not require authentication"),
+            };
+        }
     }
+
+    Err(StdError::unauthorized())
+}
+
+// Similarly to the try_read function, the query_read function uses the sender address to read and return the reminder - withouht paying any SCRT tokens!
+fn query_read<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    address: &HumanAddr,
+) -> StdResult<Binary> {
+    let status: String;
+    let mut reminder: Option<String> = None;
+    let mut timestamp: Option<u64> = None;
+
+    let sender_address = deps.api.canonical_address(&address)?;
+
+    // read the reminder from storage
+    let result: Option<Reminder> = may_load(&deps.storage, &sender_address.as_slice().to_vec())
+        .ok()
+        .unwrap();
+    match result {
+        // set all response field values
+        Some(stored_reminder) => {
+            status = String::from("Reminder found.");
+            reminder = String::from_utf8(stored_reminder.content).ok();
+            timestamp = Some(stored_reminder.timestamp);
+        }
+        // unless there's an error
+        None => {
+            status = String::from("Reminder not found.");
+        }
+    };
+
+    to_binary(&QueryAnswer::Read {
+        status,
+        reminder,
+        timestamp,
+    })
 }

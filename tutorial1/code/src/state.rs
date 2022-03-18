@@ -14,6 +14,7 @@ pub static CONFIG_KEY: &[u8] = b"config";
 pub struct State {
     pub max_size: u16,
     pub reminder_count: u64,
+    pub prng_seed: Vec<u8>,
 }
 
 // Reminder message and timestamp
@@ -52,4 +53,19 @@ pub fn may_load<T: DeserializeOwned, S: ReadonlyStorage>(
         Some(value) => Bincode2::deserialize(&value).map(Some),
         None => Ok(None),
     }
+}
+
+// to read and write viewing key from/to smart contract storage
+pub const PREFIX_VIEWING_KEY: &[u8] = b"viewingkey";
+
+// a setter functions to write/set viewing keys in the contract
+pub fn write_viewing_key<S: Storage>(store: &mut S, owner: &CanonicalAddr, key: &ViewingKey) {
+    let mut user_key_store = PrefixedStorage::new(PREFIX_VIEWING_KEY, store);
+    user_key_store.set(owner.as_slice(), &key.to_hashed());
+}
+
+// a getter function to read/get viewing keys from the contract
+pub fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
+    let user_key_store = ReadonlyPrefixedStorage::new(PREFIX_VIEWING_KEY, store);
+    user_key_store.get(owner.as_slice())
 }
