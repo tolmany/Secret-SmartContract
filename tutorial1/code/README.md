@@ -118,7 +118,7 @@ _The next commands should all be executed from inside the CLI fodler of your pro
 
    Ensure your `.wasm` file is named `contract.wasm`, consistently with the readFileSync() function.
    
-   Move the `contract.wasm` file in the cli folder.
+   Manually move the `contract.wasm` file in the cli folder.
 
 
 5. **Upload and Initiate your contract**
