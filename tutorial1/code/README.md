@@ -35,6 +35,12 @@ rustup target list --installed
 rustup target add wasm32-unknown-unknown
 ```
 
+Export the path to `cargo` if needed
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+
 Then install [cargo-generate](https://github.com/ashleygwilliams/cargo-generate).
 
 ```sh
